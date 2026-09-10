@@ -10,20 +10,21 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("trading_bot.log"),
+        logging.FileHandler("gold_rsi_bot.log"),
         logging.StreamHandler()
     ]
 )
 
-# Configuration Parameters for Gold (XAUUSD)
-SYMBOL = "XAUUSD"  # Agar aap ke broker mein symbol 'GOLD' hai toh yahan 'GOLD' likh dein
+# Configuration Parameters for Gold with RSI Filter
+SYMBOL = "XAUUSD"
 TIMEFRAME = mt5.TIMEFRAME_M15
-LOT_SIZE = 0.01    # Gold par shuru mein chhota lot size (0.01) behter hota hai risk control ke liye
-MAGIC_NUMBER = 123456
+LOT_SIZE = 0.01
+MAGIC_NUMBER = 789012
 EMA_SHORT = 9
 EMA_LONG = 21
+RSI_PERIOD = 14
 
-# Gold ke liye 30 Pips Stop Loss aur 100 Pips Take Profit
+# Risk Management: 30 Pips SL aur 100 Pips TP
 SL_PIPS = 30
 TP_PIPS = 100
 
@@ -56,9 +57,16 @@ def get_market_data(symbol, timeframe, count=100):
 
 
 def calculate_indicators(df):
-    """Calculates Exponential Moving Averages for strategy evaluation."""
+    """Calculates EMAs and RSI for advanced Gold filtering."""
     df['ema_short'] = df['close'].ewm(span=EMA_SHORT, adjust=False).mean()
     df['ema_long'] = df['close'].ewm(span=EMA_LONG, adjust=False).mean()
+    
+    # Calculate RSI
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=RSI_PERIOD).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=RSI_PERIOD).mean()
+    rs = gain / loss
+    df['rsi'] = 100 - (100 / (1 + rs))
     return df
 
 
@@ -73,8 +81,8 @@ def check_open_positions():
 
 
 def execute_trade(action, price, sl, tp):
-    """Executes a market order (BUY or SELL) with Stop Loss and Take Profit for Gold."""
-    deviation = 50  # Gold mein volatility zyada hoti hai is liye deviation thori barha di hai
+    """Executes a market order with 30 Pips SL and 100 Pips TP for Gold."""
+    deviation = 50
     order_type = mt5.ORDER_TYPE_BUY if action == "BUY" else mt5.ORDER_TYPE_SELL
     
     request = {
@@ -87,7 +95,7 @@ def execute_trade(action, price, sl, tp):
         "tp": tp,
         "deviation": deviation,
         "magic": MAGIC_NUMBER,
-        "comment": "Gold Bot 30SL 100TP",
+        "comment": "Gold RSI Bot 30SL 100TP",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": mt5.ORDER_FILLING_IOC,
     }
@@ -100,8 +108,8 @@ def execute_trade(action, price, sl, tp):
 
 
 def run_strategy():
-    """Core logic loop evaluating market trends for Gold with 30 Pips SL and 100 Pips TP."""
-    logging.info("Evaluating Gold market conditions...")
+    """Core logic loop evaluating EMA + RSI conditions for Gold."""
+    logging.info("Evaluating Gold market conditions with RSI filter...")
     
     df = get_market_data(SYMBOL, TIMEFRAME, count=100)
     if df is None or len(df) < EMA_LONG:
@@ -113,6 +121,7 @@ def run_strategy():
     prev_long = df['ema_long'].iloc[-2]
     curr_short = df['ema_short'].iloc[-1]
     curr_long = df['ema_long'].iloc[-1]
+    current_rsi = df['rsi'].iloc[-1]
 
     if check_open_positions() > 0:
         logging.info("Position already active. Waiting for exit criteria or next signal.")
@@ -129,24 +138,22 @@ def run_strategy():
         
     point = symbol_info.point
     digits = symbol_info.digits
-    
-    # Gold pip calculation multiplier
     pip_multiplier = 10 if digits in [3, 5] else 1
     
     sl_distance = SL_PIPS * pip_multiplier * point
     tp_distance = TP_PIPS * pip_multiplier * point
 
-    # Bullish Crossover: BUY Signal for Gold
-    if prev_short <= prev_long and curr_short > curr_long:
-        logging.info("Bullish EMA crossover detected on Gold!")
+    # Bullish Signal: EMA Crossover + RSI above 50 (Bullish Momentum)
+    if prev_short <= prev_long and curr_short > curr_long and current_rsi > 50:
+        logging.info(f"Bullish EMA crossover & RSI ({current_rsi:.2f}) confirmed on Gold!")
         ask_price = tick.ask
         sl = ask_price - sl_distance
         tp = ask_price + tp_distance
         execute_trade("BUY", ask_price, sl, tp)
 
-    # Bearish Crossover: SELL Signal for Gold
-    elif prev_short >= prev_long and curr_short < curr_long:
-        logging.info("Bearish EMA crossover detected on Gold!")
+    # Bearish Signal: EMA Crossover + RSI below 50 (Bearish Momentum)
+    elif prev_short >= prev_long and curr_short < curr_long and current_rsi < 50:
+        logging.info(f"Bearish EMA crossover & RSI ({current_rsi:.2f}) confirmed on Gold!")
         bid_price = tick.bid
         sl = bid_price + sl_distance
         tp = bid_price - tp_distance
