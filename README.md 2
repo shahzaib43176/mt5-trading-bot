@@ -1,0 +1,19 @@
+# MT5 Automated Trading Bot
+
+A robust, production-ready algorithmic trading bot built in Python utilizing the MetaTrader 5 API, Pandas, and NumPy. It implements an Exponential Moving Average (EMA) crossover strategy with built-in risk management parameters (Stop Loss and Take Profit).
+
+## Features
+- **Automated Execution:** Continuously monitors market trends via live MetaTrader 5 ticks.
+- **Risk Management:** Calculates exact Stop Loss and Take Profit boundaries for every trade.
+- **Logging System:** Records execution states, errors, and trade actions locally to `trading_bot.log`.
+- **Clean Architecture:** Modularized codebase designed for easy scaling and customization.
+
+## Prerequisites
+- Windows OS (MetaTrader 5 terminal desktop application must be installed and logged into an active account).
+- Python 3.8 or higher.
+
+## Installation & Setup
+1. Clone the repository or download the source files.
+2. Install the required dependencies by running the following command in your terminal:
+   ```bash
+   pip install -r requirements.txt
