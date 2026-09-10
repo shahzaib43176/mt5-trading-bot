@@ -15,15 +15,17 @@ logging.basicConfig(
     ]
 )
 
-# Configuration Parameters
-SYMBOL = "EURUSD"
+# Configuration Parameters for Gold (XAUUSD)
+SYMBOL = "XAUUSD"  # Agar aap ke broker mein symbol 'GOLD' hai toh yahan 'GOLD' likh dein
 TIMEFRAME = mt5.TIMEFRAME_M15
-LOT_SIZE = 0.1
+LOT_SIZE = 0.01    # Gold par shuru mein chhota lot size (0.01) behter hota hai risk control ke liye
 MAGIC_NUMBER = 123456
 EMA_SHORT = 9
 EMA_LONG = 21
-SL_POINTS = 300  # Stop Loss in points
-TP_POINTS = 600  # Take Profit in points
+
+# Gold ke liye 30 Pips Stop Loss aur 100 Pips Take Profit
+SL_PIPS = 30
+TP_PIPS = 100
 
 
 def initialize_mt5():
@@ -32,7 +34,6 @@ def initialize_mt5():
         logging.error(f"MT5 initialization failed, error code: {mt5.last_error()}")
         return False
     
-    # Ensure the symbol is available and selected in Market Watch
     if not mt5.symbol_select(SYMBOL, True):
         logging.error(f"Failed to select symbol {SYMBOL}, error code: {mt5.last_error()}")
         mt5.shutdown()
@@ -72,8 +73,8 @@ def check_open_positions():
 
 
 def execute_trade(action, price, sl, tp):
-    """Executes a market order (BUY or SELL) with pre-defined risk parameters."""
-    deviation = 20
+    """Executes a market order (BUY or SELL) with Stop Loss and Take Profit for Gold."""
+    deviation = 50  # Gold mein volatility zyada hoti hai is liye deviation thori barha di hai
     order_type = mt5.ORDER_TYPE_BUY if action == "BUY" else mt5.ORDER_TYPE_SELL
     
     request = {
@@ -86,7 +87,7 @@ def execute_trade(action, price, sl, tp):
         "tp": tp,
         "deviation": deviation,
         "magic": MAGIC_NUMBER,
-        "comment": "World Class MT5 Bot",
+        "comment": "Gold Bot 30SL 100TP",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": mt5.ORDER_FILLING_IOC,
     }
@@ -95,12 +96,12 @@ def execute_trade(action, price, sl, tp):
     if result.retcode != mt5.TRADE_RETCODE_DONE:
         logging.error(f"Order failed, retcode={result.retcode}, error={mt5.last_error()}")
     else:
-        logging.info(f"Successfully executed {action}! Ticket: {result.order}, Price: {price}")
+        logging.info(f"Successfully executed Gold {action}! Ticket: {result.order}, Price: {price}, SL: {sl}, TP: {tp}")
 
 
 def run_strategy():
-    """Core logic loop evaluating market trends and executing trades."""
-    logging.info("Evaluating market conditions...")
+    """Core logic loop evaluating market trends for Gold with 30 Pips SL and 100 Pips TP."""
+    logging.info("Evaluating Gold market conditions...")
     
     df = get_market_data(SYMBOL, TIMEFRAME, count=100)
     if df is None or len(df) < EMA_LONG:
@@ -108,13 +109,11 @@ def run_strategy():
 
     df = calculate_indicators(df)
     
-    # Get the latest completed candle values (-2) and active candle (-1)
     prev_short = df['ema_short'].iloc[-2]
     prev_long = df['ema_long'].iloc[-2]
     curr_short = df['ema_short'].iloc[-1]
     curr_long = df['ema_long'].iloc[-1]
 
-    # Prevent over-trading by checking current open positions
     if check_open_positions() > 0:
         logging.info("Position already active. Waiting for exit criteria or next signal.")
         return
@@ -124,22 +123,33 @@ def run_strategy():
         logging.warning("Failed to fetch current tick data")
         return
 
-    # Bullish Crossover: Short EMA crosses above Long EMA
+    symbol_info = mt5.symbol_info(SYMBOL)
+    if symbol_info is None:
+        return
+        
+    point = symbol_info.point
+    digits = symbol_info.digits
+    
+    # Gold pip calculation multiplier
+    pip_multiplier = 10 if digits in [3, 5] else 1
+    
+    sl_distance = SL_PIPS * pip_multiplier * point
+    tp_distance = TP_PIPS * pip_multiplier * point
+
+    # Bullish Crossover: BUY Signal for Gold
     if prev_short <= prev_long and curr_short > curr_long:
-        logging.info("Bullish EMA crossover detected!")
+        logging.info("Bullish EMA crossover detected on Gold!")
         ask_price = tick.ask
-        point = mt5.symbol_info(SYMBOL).point
-        sl = ask_price - (SL_POINTS * point)
-        tp = ask_price + (TP_POINTS * point)
+        sl = ask_price - sl_distance
+        tp = ask_price + tp_distance
         execute_trade("BUY", ask_price, sl, tp)
 
-    # Bearish Crossover: Short EMA crosses below Long EMA
+    # Bearish Crossover: SELL Signal for Gold
     elif prev_short >= prev_long and curr_short < curr_long:
-        logging.info("Bearish EMA crossover detected!")
+        logging.info("Bearish EMA crossover detected on Gold!")
         bid_price = tick.bid
-        point = mt5.symbol_info(SYMBOL).point
-        sl = bid_price + (SL_POINTS * point)
-        tp = bid_price - (TP_POINTS * point)
+        sl = bid_price + sl_distance
+        tp = bid_price - tp_distance
         execute_trade("SELL", bid_price, sl, tp)
 
 
@@ -151,7 +161,6 @@ def main():
     try:
         while True:
             run_strategy()
-            # Sleep for 60 seconds before checking the market again
             time.sleep(60)
     except KeyboardInterrupt:
         logging.info("Bot execution manually stopped by user.")
